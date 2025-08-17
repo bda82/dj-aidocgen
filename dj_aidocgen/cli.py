@@ -6,25 +6,33 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 # ========================= Django bootstrap =========================
-def bootstrap_django():
+# cli.py -> bootstrap_django()
+
+def bootstrap_django(settings_override=None, extras_pythonpath=None):
+    # 1) sys.path: manage.py dir + manage.py/src
+    cwd = pathlib.Path.cwd()
+    manage_dir = None
+    for p in [cwd] + list(cwd.parents):
+        if (p / "manage.py").exists():
+            manage_dir = p
+            break
+    if manage_dir:
+        sys.path.insert(0, str(manage_dir))
+        if (manage_dir / "src").exists():
+            sys.path.insert(0, str(manage_dir / "src"))
+
+    # 2) DJANGO_SETTINGS_MODULE
+    if settings_override:
+        os.environ["DJANGO_SETTINGS_MODULE"] = settings_override
     dsm = os.environ.get("DJANGO_SETTINGS_MODULE")
+
     if not dsm:
-        cwd = pathlib.Path.cwd()
-        for p in [cwd] + list(cwd.parents):
-            mp = p / "manage.py"
-            if mp.exists():
-                for cand in p.iterdir():
-                    if (cand / "settings.py").exists():
-                        os.environ["DJANGO_SETTINGS_MODULE"] = f"{cand.name}.settings"
-                        dsm = os.environ["DJANGO_SETTINGS_MODULE"]
-                        break
-            if dsm:
-                break
-    if not dsm:
-        print("Не найден DJANGO_SETTINGS_MODULE. Укажи переменную окружения или запусти рядом с manage.py.", file=sys.stderr)
-        sys.exit(2)
+        # прежняя эвристика поиска settings.py
+        ...
+
     import django
     django.setup()
+
 
 def get_view_by_url_name(name: str):
     from django.urls import get_resolver
@@ -305,9 +313,17 @@ def main():
     parser.add_argument("--out-root", default=None, help="Корень проекта (по умолчанию cwd)")
     parser.add_argument("--render", choices=["docker","skip"], default="docker", help="Рендер Structurizr PNG (docker|skip)")
     parser.add_argument("--diagram", choices=["structurizr","mermaid"], default="structurizr", help="Тип диаграммы в .md")
+    parser.add_argument("--settings", help="Модуль настроек Django, напр. otello_admin.settings")
+    parser.add_argument("--pythonpath", help="Доп. пути через ; (Windows) или : (Unix)")
     args = parser.parse_args()
 
-    bootstrap_django()
+    if args.pythonpath:
+        sep = ";" if os.name == "nt" else ":"
+        for p in args.pythonpath.split(sep):
+            if p: sys.path.insert(0, p)
+
+    bootstrap_django(settings_override=args.settings)
+    
     view = get_view_by_url_name(args.handle)
     if not view:
         print(f"Не найден view по name='{args.handle}'. Проверь urls.py.", file=sys.stderr)
